@@ -13,6 +13,19 @@ export class GondolasService {
     private readonly gondolasRepo: Repository<Gondola>,
   ) {}
 
+  async list(idLoja?: number) {
+    if (idLoja) {
+      return this.gondolasRepo.find({
+        where: { idLoja },
+        order: { idGondola: 'DESC' as any },
+      });
+    }
+
+    return this.gondolasRepo.find({
+      order: { idGondola: 'DESC' as any },
+    });
+  }
+
   // Lista todas ou filtra por loja
   findAll(idLoja?: number) {
     if (idLoja) {

@@ -24,6 +24,11 @@ export class GondolasController {
     return this.gondolasService.findAll(parsed);
   }
 
+   @Get()
+  async list(@Query('idLoja') idLoja?: string) {
+    return this.gondolasService.list(idLoja ? Number(idLoja) : undefined);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.gondolasService.findOne(id);
