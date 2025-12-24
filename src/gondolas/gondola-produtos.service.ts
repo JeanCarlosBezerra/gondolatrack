@@ -39,57 +39,67 @@ export class GondolaProdutosService {
     });
   }
 
-  // === INÍCIO TRECHO AJUSTADO: getEstoqueAtualDb2 ===
-private async getEstoqueAtualDb2(params: {
+private normalizeQtd(qtdRaw: any): number {
+  const s = String(qtdRaw ?? '').trim();
+  if (!s) return 0;
+
+  let normalized = s;
+
+  if (normalized.includes(',') && normalized.includes('.')) {
+    normalized = normalized.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalized = normalized.replace(',', '.');
+  }
+
+  const qtd = Number(normalized);
+  if (!Number.isFinite(qtd)) return 0;
+
+  return Math.max(0, Math.round(qtd * 1000) / 1000);
+}
+
+// ✅ AJUSTE: helper recebe ARRAY (idLocaisEstoque)
+private async getEstoqueDb2PorLocais(params: {
   idEmpresa: number;
-  idLocalEstoque: number;
   idProduto: number;
+  idLocaisEstoque: number[];
 }): Promise<number> {
-  const { idEmpresa, idProduto, idLocalEstoque } = params;
+  const { idEmpresa, idProduto, idLocaisEstoque } = params;
+
+  if (!idLocaisEstoque || idLocaisEstoque.length === 0) return 0;
+
+  const placeholders = idLocaisEstoque.map(() => "?").join(", ");
 
   const sql = `
     SELECT COALESCE(SUM(QTDATUALESTOQUE), 0) AS QTD
     FROM ESTOQUE_SALDO_ATUAL
     WHERE IDPRODUTO = ?
       AND IDEMPRESA = ?
-      AND IDLOCALESTOQUE = ?
+      AND IDLOCALESTOQUE IN (${placeholders})
   `;
-  const rows = await this.db2.query<any>(sql, [idProduto, idEmpresa, idLocalEstoque]);
+
+  const rows = await this.db2.query<any>(sql, [idProduto, idEmpresa, ...idLocaisEstoque]);
 
   const qtdRaw = rows?.[0]?.QTD ?? rows?.[0]?.qtd ?? 0;
-
-  // trata "2,340" / "2.340" / "2.340,50" (driver/locale variando)
-  const s = String(qtdRaw).trim();
-
-  // se vier "2,340" como decimal -> vira 2.340
-  // se vier "2.340,50" -> vira 2340.50
-  let normalized = s;
-
-  if (normalized.includes(",") && normalized.includes(".")) {
-    normalized = normalized.replace(/\./g, "").replace(",", ".");
-  } else {
-    normalized = normalized.replace(",", ".");
-  }
-
-  const qtd = Number(normalized);
-  if (!Number.isFinite(qtd)) return 0;
-  return Math.max(0, qtd); // sem floor
+  const qtd = Number(qtdRaw);
+  return Number.isFinite(qtd) ? qtd : 0;
 }
 // === FIM TRECHO AJUSTADO ===
     // === FIM TRECHO AJUSTADO ===   
 
-    private async getLocalVenda(idLoja: number) {
+    private async getLocalVenda(idLoja: number): Promise<number | null> {
       const row = await this.lojaLocalRepo.findOne({
         where: { idLoja, papelNaLoja: 'VENDA' as any },
       });
-      return row?.idLocalEstoque ?? null;
+      return row?.idLocalEstoque != null ? Number(row.idLocalEstoque) : null;
     }
 
-    private async getLocaisDeposito(idLoja: number) {
+    private async getLocaisDeposito(idLoja: number, idEmpresa: number): Promise<number[]> {
       const rows = await this.lojaLocalRepo.find({
-        where: { idLoja, papelNaLoja: 'DEPOSITO' as any },
+        where: { idLoja, idEmpresa, papelNaLoja: 'DEPOSITO' },
+        order: { idLocalEstoque: 'ASC' },
       });
-      return rows.map(r => r.idLocalEstoque);
+    
+      return rows.map((r) => Number(r.idLocalEstoque));
     }
 
     async remove(idGondola: number, idGondolaProduto: number): Promise<void> {
@@ -106,35 +116,48 @@ private async getEstoqueAtualDb2(params: {
     }
 
     async refreshEstoqueGondola(idGondola: number) {
-      const gondola = await this.gondolaRepo.findOne({ where: { idGondola } });
-      if (!gondola) throw new NotFoundException('Gôndola não encontrada');
+  const gondola = await this.gondolaRepo.findOne({ where: { idGondola } });
+  if (!gondola) throw new NotFoundException('Gôndola não encontrada');
 
-      const loja = await this.lojaRepo.findOne({ where: { idLoja: gondola.idLoja } });
-      if (!loja?.idEmpresa) throw new NotFoundException('Loja sem idEmpresa configurado');
+  const loja = await this.lojaRepo.findOne({ where: { idLoja: gondola.idLoja } });
+  if (!loja) throw new NotFoundException('Loja não encontrada');
 
-      const idLocalVenda = await this.getLocalVenda(loja.idLoja);
-      if (!idLocalVenda) {
-        throw new NotFoundException('Local VENDA não configurado para esta loja');
-      }
-    
-      const produtos = await this.gpRepo.find({ where: { idGondola } });
-    
-      for (const gp of produtos) {
-        const estoqueAtual = await this.getEstoqueAtualDb2({
-          idEmpresa: loja.idEmpresa,
-          idLocalEstoque: idLocalVenda,
-          idProduto: gp.idProduto,
-        });
-      
-        gp.estoqueAtual = estoqueAtual;
-        gp.atualizadoEm = new Date();
-        await this.gpRepo.save(gp);
-      }
-    
-      return { success: true, total: produtos.length };
-    }
+  if (!loja.idEmpresa) {
+    throw new BadRequestException('Loja sem idEmpresa configurado (necessário para consultar estoque no DB2).');
+  }
+
+  const locaisLoja = await this.lojaLocalRepo.find({
+    where: { idLoja: loja.idLoja, idEmpresa: loja.idEmpresa },
+  });
+
+  const locaisVenda = locaisLoja
+    .filter((l) => l.papelNaLoja === 'VENDA')
+    .map((l) => Number(l.idLocalEstoque));
+
+  if (!locaisVenda.length) {
+    throw new BadRequestException('Nenhum local de VENDA configurado para esta loja.');
+  }
+
+  const produtos = await this.gpRepo.find({ where: { idGondola } });
+
+  for (const gp of produtos) {
+    const estoqueVenda = await this.getEstoqueDb2PorLocais({
+      idEmpresa: Number(loja.idEmpresa),
+      idProduto: Number(gp.idProduto),
+      idLocaisEstoque: locaisVenda,
+    });
+
+    gp.estoqueAtual = estoqueVenda;
+    gp.atualizadoEm = new Date();
+  }
+
+  await this.gpRepo.save(produtos);
+
+  return produtos;
+}
 
     async getReposicaoGondola(idGondola: number): Promise<ReposicaoItem[]> {
+      
       const gondola = await this.gondolaRepo.findOne({ where: { idGondola } });
       if (!gondola) throw new NotFoundException('Gôndola não encontrada');
         
@@ -143,51 +166,69 @@ private async getEstoqueAtualDb2(params: {
         
       const idLocalVenda = await this.getLocalVenda(loja.idLoja);
       if (!idLocalVenda) throw new NotFoundException('Local VENDA não configurado');
+
         
-      const locaisDeposito = await this.getLocaisDeposito(loja.idLoja);
+      const locaisDeposito = await this.getLocaisDeposito(
+        loja.idLoja,
+        Number(loja.idEmpresa),
+      ); // ex: [8, 15...]
         
       const produtos = await this.gpRepo.find({ where: { idGondola } });
+
+      console.log('[REPOSICAO] loja:', {
+        idLoja: loja.idLoja,
+        idEmpresa: loja.idEmpresa,
+      });
+
+      console.log('[REPOSICAO] idLocalVenda:', idLocalVenda);
+      console.log('[REPOSICAO] locaisDeposito:', locaisDeposito);
+      console.log('[REPOSICAO] qtdProdutos:', produtos.length);
+
+      const idEmpresa = Number(loja.idEmpresa);
+      if (!Number.isFinite(idEmpresa)) throw new NotFoundException('Loja sem idEmpresa configurado');
         
       // ✅ TIPADO (resolve o erro do out.push)
       const out: ReposicaoItem[] = [];
         
       for (const gp of produtos) {
-        const estoqueVenda = await this.getEstoqueAtualDb2({
-          idEmpresa: loja.idEmpresa,
-          idLocalEstoque: idLocalVenda,
-          idProduto: gp.idProduto,
-        });
-      
-        let estoqueDeposito = 0;
-        for (const idLocal of locaisDeposito) {
-          estoqueDeposito += await this.getEstoqueAtualDb2({
-            idEmpresa: loja.idEmpresa,
-            idLocalEstoque: idLocal,
-            idProduto: gp.idProduto,
-          });
-        }
-      
-        const precisaRepor = Math.max((gp.maximo ?? 0) - estoqueVenda, 0);
-        const repor = Math.min(precisaRepor, estoqueDeposito);
-      
-        out.push({
-          idGondolaProduto: gp.idGondolaProduto,
-          ean: gp.ean,
-          descricao: gp.descricao,
-          estoqueVenda,
-          minimo: gp.minimo,
-          maximo: gp.maximo,
-          repor, // 👈 agora bate com o page.tsx
-          estoqueDeposito,
-        });
-      
-        // opcional: atualizar o estoqueAtual local com o valor real da VENDA
-        gp.estoqueAtual = estoqueVenda;
-        gp.atualizadoEm = new Date();
-        await this.gpRepo.save(gp);
-      }
+      const estoqueVenda = await this.getEstoqueDb2PorLocais({
+        idEmpresa: Number(loja.idEmpresa),
+        idProduto: gp.idProduto,
+        idLocaisEstoque: [Number(idLocalVenda)],
+      });
+
+      console.log('[REPOSICAO] produto:', {
+        idProduto: gp.idProduto,
+        ean: gp.ean,
+      });
     
-      return out;
+      const estoqueDeposito = await this.getEstoqueDb2PorLocais({
+        idEmpresa: Number(loja.idEmpresa),
+        idProduto: gp.idProduto,
+        idLocaisEstoque: (locaisDeposito ?? []).map(Number),
+      });
+    
+      const precisaRepor = Math.max((gp.maximo ?? 0) - estoqueVenda, 0);
+      const repor = Math.min(precisaRepor, estoqueDeposito);
+    
+      out.push({
+        idGondolaProduto: gp.idGondolaProduto,
+        ean: gp.ean,
+        descricao: gp.descricao,
+        estoqueVenda,
+        minimo: gp.minimo,
+        maximo: gp.maximo,
+        repor,
+        estoqueDeposito,
+      });
+
+    
+      gp.estoqueAtual = estoqueVenda;
+      gp.atualizadoEm = new Date();
+      await this.gpRepo.save(gp);
+    }
+
+          return out;
     }
     
 
@@ -252,11 +293,18 @@ private async getEstoqueAtualDb2(params: {
       throw new BadRequestException('Local VENDA não configurado para esta loja (loja_locais_estoque).');
     }
     
-    // ✅ calcula o estoque de VENDA no DB2
-    const estoqueAtual = await this.getEstoqueAtualDb2({
+    const locaisVenda = locais
+      .filter((l) => l.papelNaLoja === 'VENDA')
+      .map((l) => Number(l.idLocalEstoque));
+
+    if (!locaisVenda.length) {
+      throw new BadRequestException('Nenhum local de VENDA configurado para esta loja.');
+    }
+
+    const estoqueAtual = await this.getEstoqueDb2PorLocais({
       idEmpresa: Number(loja.idEmpresa),
       idProduto: idProdutoDb2,
-      idLocalEstoque: idLocalVenda,
+      idLocaisEstoque: locaisVenda,
     });
     
     const jaExiste = await this.gpRepo.findOne({
