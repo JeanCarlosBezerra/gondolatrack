@@ -12,6 +12,8 @@ import { PosicoesGondolaModule } from './gondolas/posicoes-gondola.module';
 import * as dotenv from 'dotenv';
 import { Db2Module } from './db2/db2.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { AbastecimentosModule } from './abastecimento/abastecimentos.module';
+
 dotenv.config();
 
 console.log(
@@ -26,6 +28,7 @@ console.log(
   imports: [
     Db2Module,
     UsuariosModule,
+    AbastecimentosModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
