@@ -1,5 +1,5 @@
 // === INÍCIO ARQUIVO: src/abastecimentos/abastecimentos.service.ts ===
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
 import { Abastecimento } from "./entities/abastecimento.entity";
@@ -8,6 +8,7 @@ import { GerarAbastecimentoDto } from "./dto/gerar-abastecimento.dto";
 
 // Ajuste para o seu serviço de DB2 (o seu projeto já tem um módulo/conexão)
 import { Db2Service } from "../db2/db2.service"; // ajuste o path conforme seu projeto
+import { AtualizarItensDto } from "./dto/atualizar-itens.dto";
 
 @Injectable()
 export class AbastecimentosService {
@@ -17,6 +18,224 @@ export class AbastecimentosService {
     private dataSource: DataSource,
     private db2: Db2Service,
   ) {}
+
+
+  async list(idLoja?: number) {
+    const where: any = {};
+    if (idLoja) where.idLoja = String(idLoja);
+    return this.abastRepo.find({
+      where,
+      order: { idAbastecimento: "DESC" as any },
+      take: 50,
+    });
+  }
+
+  async itens(idAbastecimento: string) {
+    return this.itemRepo.find({
+      where: { idAbastecimento: String(idAbastecimento) },
+      order: { descricao: "ASC" as any },
+    });
+  }
+
+  // === NOVO: salvar qtdSelecionada (batch) ===
+  async atualizarItensSelecionados(idAbastecimento: string, dto: AtualizarItensDto) {
+    if (!dto?.itens?.length) {
+      throw new BadRequestException("Informe ao menos 1 item para atualizar.");
+    }
+
+    const abast = await this.abastRepo.findOne({
+      where: { idAbastecimento: String(idAbastecimento) },
+    });
+    if (!abast) throw new NotFoundException("Abastecimento não encontrado.");
+
+    if (abast.status !== "RASCUNHO") {
+      throw new BadRequestException("Só é permitido editar itens quando o status é RASCUNHO.");
+    }
+
+    // Validação forte: número decimal >= 0
+    const normalize = (s: string) => {
+      const v = Number(String(s).replace(",", "."));
+      if (!Number.isFinite(v) || v < 0) throw new BadRequestException(`qtdSelecionada inválida: ${s}`);
+      // padroniza 3 casas
+      return (Math.round(v * 1000) / 1000).toFixed(3);
+    };
+
+    await this.dataSource.transaction(async (trx) => {
+      for (const it of dto.itens) {
+        const qtd = normalize(it.qtdSelecionada);
+
+        // === ALTERADO: atualização direta (mais simples e segura) ===
+        await trx
+          .createQueryBuilder()
+          .update(AbastecimentoItem)
+          .set({ qtdSelecionada: qtd })
+          .where("id_abastecimento_item = :id", { id: String(it.idAbastecimentoItem) })
+          .andWhere("id_abastecimento = :ab", { ab: String(idAbastecimento) })
+          .execute();
+      }
+
+      // marca atualizado_em no cabeçalho
+      await trx
+        .createQueryBuilder()
+        .update(Abastecimento)
+        .set({ atualizadoEm: () => "NOW()" })
+        .where("id_abastecimento = :ab", { ab: String(idAbastecimento) })
+        .execute();
+    });
+
+    return { ok: true };
+  }
+
+  async salvarItens(
+  idAbastecimento: string,
+  body: { itens: { idAbastecimentoItem: string; qtdSelecionada: string }[] },
+) {
+  const itens = body?.itens ?? [];
+  if (!itens.length) return { ok: true };
+
+  // valida se os itens pertencem ao abastecimento
+  const ids = itens.map((i) => i.idAbastecimentoItem);
+
+  const existentes = await this.itemRepo.find({
+    where: {
+      idAbastecimento: String(idAbastecimento),
+    } as any,
+  });
+
+  const setExistentes = new Set(existentes.map((e) => e.idAbastecimentoItem));
+  for (const id of ids) {
+    if (!setExistentes.has(String(id))) {
+      throw new BadRequestException(`Item ${id} não pertence ao abastecimento ${idAbastecimento}`);
+    }
+  }
+
+  // atualiza um a um (simples e seguro)
+  for (const it of itens) {
+    await this.itemRepo.update(
+      { idAbastecimentoItem: String(it.idAbastecimentoItem) } as any,
+      { qtdSelecionada: String(it.qtdSelecionada ?? "0.000") } as any,
+    );
+  }
+
+  return { ok: true };
+}
+
+// === ALTERADO: novo método ===
+async confirmar(idAbastecimento: string) {
+  const abast = await this.abastRepo.findOne({
+    where: { idAbastecimento: String(idAbastecimento) } as any,
+  });
+
+  if (!abast) throw new BadRequestException("Abastecimento não encontrado.");
+
+  // regra simples: só confirma se ainda está rascunho
+  if (abast.status !== "RASCUNHO") {
+    throw new BadRequestException(`Status inválido para confirmar: ${abast.status}`);
+  }
+
+  abast.status = "CONFIRMADO";
+  abast.atualizadoEm = new Date().toISOString() as any; // ou deixe o banco preencher se tiver default
+
+  await this.abastRepo.save(abast);
+  return { ok: true, abastecimento: abast };
+}
+
+  // === NOVO: gerar HTML de impressão ===
+  async gerarHtmlImpressao(idAbastecimento: string) {
+    const abast = await this.abastRepo.findOne({
+      where: { idAbastecimento: String(idAbastecimento) },
+    });
+    if (!abast) throw new NotFoundException("Abastecimento não encontrado.");
+
+    const lojaRows = await this.dataSource.query(
+      `SELECT id_loja, nome FROM gondolatrack.lojas WHERE id_loja = $1`,
+      [Number(abast.idLoja)],
+    );
+    const nomeLoja = lojaRows?.[0]?.nome ?? `Loja ${abast.idLoja}`;
+
+    const itens = await this.itemRepo.find({
+      where: { idAbastecimento: String(idAbastecimento) },
+      order: { descricao: "ASC" as any },
+    });
+
+    // totais
+    const toNum = (s: string) => Number(String(s).replace(",", "."));
+    const totalSelecionado = itens.reduce((acc, it) => acc + toNum(it.qtdSelecionada ?? "0"), 0);
+
+    const escape = (v: any) =>
+      String(v ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+
+    // HTML simples e eficiente (padrão A4)
+    return `<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Abastecimento #${escape(abast.idAbastecimento)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .meta { margin-bottom: 16px; font-size: 12px; color: #333; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
+    th { background: #f4f4f4; text-align: left; }
+    .right { text-align: right; white-space: nowrap; }
+    .muted { color: #666; font-size: 11px; margin-top: 2px; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <button onclick="window.print()">Imprimir</button>
+
+  <h1>Abastecimento #${escape(abast.idAbastecimento)} — ${escape(abast.status)}</h1>
+  <div class="meta">
+    <div><b>Loja:</b> ${escape(nomeLoja)} (ID ${escape(abast.idLoja)})</div>
+    <div><b>Data base:</b> ${escape(abast.dtBase)} | <b>Dias venda:</b> ${escape(abast.diasVenda)} | <b>Cobertura:</b> ${escape(abast.coberturaDias)}</div>
+    <div><b>Total selecionado:</b> ${totalSelecionado.toFixed(3)}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Produto</th>
+        <th class="right">Est. Loja</th>
+        <th class="right">Est. CD</th>
+        <th class="right">Vend. Período</th>
+        <th class="right">Média/dia</th>
+        <th class="right">Est. Alvo</th>
+        <th class="right">Sugerido</th>
+        <th class="right">Selecionado</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itens
+        .map(
+          (it) => `
+        <tr>
+          <td>
+            <div><b>${escape(it.descricao)}</b></div>
+            <div class="muted">IDSUB: ${escape(it.idsubproduto)} | EAN: ${escape(it.ean ?? "")}</div>
+          </td>
+          <td class="right">${escape(it.estoqueLoja)}</td>
+          <td class="right">${escape(it.estoqueCd)}</td>
+          <td class="right">${escape(it.totalVendidoPeriodo)}</td>
+          <td class="right">${escape(it.mediaDia)}</td>
+          <td class="right">${escape(it.estoqueAlvo)}</td>
+          <td class="right">${escape(it.qtdSugerida)}</td>
+          <td class="right"><b>${escape(it.qtdSelecionada)}</b></td>
+        </tr>
+      `,
+        )
+        .join("")}
+    </tbody>
+  </table>
+</body>
+</html>`;
+  }
+
+// === FIM TRECHOS NOVOS ===
 
   async gerar(dto: GerarAbastecimentoDto) {
     const diasVenda = dto.diasVenda ?? 30;
@@ -242,21 +461,5 @@ return {
 // === FIM TRECHO AJUSTADO ===
   }
 
-async list(idLoja?: number) {
-  const where: any = {};
-  if (idLoja) where.idLoja = String(idLoja);
-  return this.abastRepo.find({
-    where,
-    order: { idAbastecimento: "DESC" as any },
-    take: 50,
-  });
-}
-
-async itens(idAbastecimento: string) {
-  return this.itemRepo.find({
-    where: { idAbastecimento: String(idAbastecimento) },
-    order: { descricao: "ASC" as any },
-  });
-}
 }
 // === FIM ARQUIVO ===
