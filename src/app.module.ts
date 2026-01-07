@@ -28,6 +28,7 @@ console.log(
 );
 @Module({
   imports: [
+    AuthModule,
     Db2Module,
     UsuariosModule,
     AbastecimentosModule,
