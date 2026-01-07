@@ -13,6 +13,8 @@ import * as dotenv from 'dotenv';
 import { Db2Module } from './db2/db2.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { AbastecimentosModule } from './abastecimento/abastecimentos.module';
+import { AuthModule } from './auth/auth.module';
+import { ConfigModule } from '@nestjs/config';
 
 dotenv.config();
 
@@ -29,6 +31,8 @@ console.log(
     Db2Module,
     UsuariosModule,
     AbastecimentosModule,
+    ConfigModule.forRoot({ isGlobal: true }),
+    AuthModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
