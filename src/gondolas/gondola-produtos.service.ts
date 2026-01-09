@@ -39,23 +39,6 @@ export class GondolaProdutosService {
     });
   }
 
-private normalizeQtd(qtdRaw: any): number {
-  const s = String(qtdRaw ?? '').trim();
-  if (!s) return 0;
-
-  let normalized = s;
-
-  if (normalized.includes(',') && normalized.includes('.')) {
-    normalized = normalized.replace(/\./g, '').replace(',', '.');
-  } else {
-    normalized = normalized.replace(',', '.');
-  }
-
-  const qtd = Number(normalized);
-  if (!Number.isFinite(qtd)) return 0;
-
-  return Math.max(0, Math.round(qtd * 1000) / 1000);
-}
 
 // ✅ AJUSTE: helper recebe ARRAY (idLocaisEstoque)
 private async getEstoqueDb2PorLocais(params: {
@@ -208,8 +191,11 @@ private async getEstoqueDb2PorLocais(params: {
         idLocaisEstoque: (locaisDeposito ?? []).map(Number),
       });
     
-      const precisaRepor = Math.max((gp.maximo ?? 0) - estoqueVenda, 0);
-      const repor = Math.min(precisaRepor, estoqueDeposito);
+      // [ALTERADO] regra solicitada: repor = maximo - estoqueVenda (se <0 => 0)
+const repor = Math.max((gp.maximo ?? 0) - estoqueVenda, 0);
+
+// [OPCIONAL] se você quiser manter a visão "o que dá para repor com o depósito"
+const reporDisponivel = Math.min(repor, estoqueDeposito);
     
       out.push({
         idGondolaProduto: gp.idGondolaProduto,

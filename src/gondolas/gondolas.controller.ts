@@ -19,14 +19,14 @@ export class GondolasController {
   constructor(private readonly gondolasService: GondolasService) {}
 
   @Get()
+  async list(@Query('idLoja') idLoja?: string) {
+    return this.gondolasService.list(idLoja ? Number(idLoja) : undefined);
+  }
+  
+  @Get('all')
   findAll(@Query('idLoja') idLoja?: string) {
     const parsed = idLoja ? Number(idLoja) : undefined;
     return this.gondolasService.findAll(parsed);
-  }
-
-   @Get()
-  async list(@Query('idLoja') idLoja?: string) {
-    return this.gondolasService.list(idLoja ? Number(idLoja) : undefined);
   }
 
   @Get(':id')

@@ -14,6 +14,7 @@ import { PosicoesGondolaModule } from './gondolas/posicoes-gondola.module';
 import { Loja } from './lojas/loja.entity';
 import { Gondola } from './gondolas/gondola.entity';
 import { PosicaoGondola } from './gondolas/posicao-gondola.entity';
+import { ConferenciasModule } from './conferencia/conferencias.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { PosicaoGondola } from './gondolas/posicao-gondola.entity';
     LojasModule,
     GondolasModule,
     PosicoesGondolaModule,
+    ConferenciasModule,
   ],
 })
 export class AppModule {}
