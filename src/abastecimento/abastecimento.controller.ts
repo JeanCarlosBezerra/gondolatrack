@@ -37,14 +37,6 @@ export class AbastecimentosController {
     return this.service.itens(idAbastecimento);
   }
 
-  // === NOVO: SALVAR qtdSelecionada EM LOTE ===
-  @Patch(":idAbastecimento/itens")
-  async atualizarItens(
-    @Param("idAbastecimento") idAbastecimento: string,
-    @Body() dto: AtualizarItensDto,
-  ) {
-    return this.service.atualizarItensSelecionados(idAbastecimento, dto);
-  }
 
   @Patch(":idAbastecimento/itens")
   async salvarItens(
@@ -69,5 +61,19 @@ export class AbastecimentosController {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   }
+
+@Get(":idAbastecimento/export/xlsx")
+async exportXlsx(
+  @Param("idAbastecimento") idAbastecimento: string,
+  @Res() res: Response,
+) {
+  const { buffer, filename } = await this.service.exportarXlsx(idAbastecimento);
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Length", buffer.length);
+
+  return res.end(buffer);
+}
 }
 // === FIM ARQUIVO ===

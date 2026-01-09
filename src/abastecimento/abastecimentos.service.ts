@@ -5,10 +5,12 @@ import { DataSource, Repository } from "typeorm";
 import { Abastecimento } from "./entities/abastecimento.entity";
 import { AbastecimentoItem } from "./entities/abastecimento-item.entity";
 import { GerarAbastecimentoDto } from "./dto/gerar-abastecimento.dto";
+import { Buffer } from "buffer";
 
 // Ajuste para o seu serviço de DB2 (o seu projeto já tem um módulo/conexão)
 import { Db2Service } from "../db2/db2.service"; // ajuste o path conforme seu projeto
 import { AtualizarItensDto } from "./dto/atualizar-itens.dto";
+import ExcelJS from "exceljs";
 
 @Injectable()
 export class AbastecimentosService {
@@ -36,6 +38,53 @@ export class AbastecimentosService {
       order: { descricao: "ASC" as any },
     });
   }
+
+  // [NOVO] Exporta XLSX no formato CISS: IDSUBPRODUTO / QUANTIDADE
+async exportarXlsx(idAbastecimento: string): Promise<{ buffer: Buffer; filename: string }> {
+  const abast = await this.abastRepo.findOne({
+    where: { idAbastecimento: String(idAbastecimento) } as any,
+  });
+  if (!abast) throw new NotFoundException("Abastecimento não encontrado.");
+
+  // (opcional, mas recomendado) só exporta confirmado
+  if (abast.status !== "CONFIRMADO") {
+    throw new BadRequestException(`Exportação permitida apenas para CONFIRMADO. Status atual: ${abast.status}`);
+  }
+
+  const itens = await this.itemRepo.find({
+    where: { idAbastecimento: String(idAbastecimento) } as any,
+    order: { idAbastecimentoItem: "ASC" as any },
+  });
+
+  // monta Excel
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("CISS");
+
+  ws.columns = [
+    { header: "IDPRODUTO", key: "idproduto", width: 18 },
+    { header: "QUANTIDADE", key: "quantidade", width: 14 },
+  ];
+
+  for (const it of itens) {
+    // usa qtdSelecionada (não sugerida)
+    const qtd = Number(it.qtdSelecionada ?? "0");
+    if (!qtd || qtd <= 0) continue; // só exporta > 0
+
+    ws.addRow({
+      idproduto: String(it.idsubproduto),
+      quantidade: Number(qtd.toFixed(3)),
+    });
+  }
+
+  const arrayBuffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  const buffer = Buffer.from(arrayBuffer);
+
+  const safeDt = String(abast.dtBase ?? "").replaceAll("-", "");
+  const filename = `abastecimento_${abast.idLoja}_${safeDt}_#${abast.idAbastecimento}.xlsx`;
+
+  return { buffer, filename };
+}
+
 
   // === NOVO: salvar qtdSelecionada (batch) ===
   async atualizarItensSelecionados(idAbastecimento: string, dto: AtualizarItensDto) {

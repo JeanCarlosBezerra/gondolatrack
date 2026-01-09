@@ -31,6 +31,7 @@
     "class-validator": "^0.14.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
     "ibm_db": "^3.3.4",
     "ldapts": "^8.1.2",
     "passport": "^0.7.0",
