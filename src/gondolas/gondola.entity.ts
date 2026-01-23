@@ -81,6 +81,18 @@ export class Gondola {
   })
   posicoes: PosicaoGondola[];
 
+  @Column({ name: 'flag_conferida', type: 'boolean', default: false })
+  flagConferida: boolean;
+
+  @Column({ name: 'ultima_conferencia_id', type: 'bigint', nullable: true })
+  ultimaConferenciaId: number | null;
+
+  @Column({ name: 'ultima_conferencia_em', type: 'timestamptz', nullable: true })
+  ultimaConferenciaEm: Date | null;
+
+  @Column({ name: 'ultima_conferencia_usuario', type: 'varchar', length: 120, nullable: true })
+  ultimaConferenciaUsuario: string | null;
+
   
 }
 // === FIM ARQUIVO ===

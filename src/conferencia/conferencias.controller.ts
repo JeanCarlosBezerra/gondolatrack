@@ -34,4 +34,13 @@ export class ConferenciasController {
   ) {
     return this.service.criar(idGondola, dto, (req as any).user);
   }
+
+   @UseGuards(JwtAuthGuard)
+  @Get(':idGondola/conferencia/:idConferencia/divergencias')
+  async divergencias(
+    @Param('idGondola', ParseIntPipe) idGondola: number,
+    @Param('idConferencia', ParseIntPipe) idConferencia: number,
+  ) {
+    return this.service.getDivergencias(idGondola, idConferencia);
+  }
 }
