@@ -1,8 +1,11 @@
-// === INÍCIO ARQUIVO NOVO: src/produtos/produtos.service.ts ===
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
 
-// ⚠️ Ajuste para o seu serviço real de DB2 (o que você já usa em abastecimento/conferência)
 import { Db2Service } from 'src/db2/db2.service';
+import { GondolaProduto } from 'src/gondolas/gondola-produto.entity';
+import { LojaLocalEstoque } from 'src/lojas/loja-local-estoque.entity';
+import { Loja } from 'src/lojas/loja.entity';
 
 type SearchParams = {
   idLoja: number;
@@ -13,7 +16,18 @@ type SearchParams = {
 
 @Injectable()
 export class ProdutosService {
-  constructor(private readonly db2: Db2Service) {}
+  constructor(
+    private readonly db2: Db2Service,
+
+    @InjectRepository(GondolaProduto)
+    private readonly gondolaProdutoRepo: Repository<GondolaProduto>,
+
+    @InjectRepository(LojaLocalEstoque)
+    private readonly lojaLocalRepo: Repository<LojaLocalEstoque>,
+
+    @InjectRepository(Loja)
+    private readonly lojaRepo: Repository<Loja>,
+  ) {}
 
   private normalizePaging(page: number, limit: number) {
     const p = Number.isFinite(page) && page > 0 ? page : 1;
@@ -21,39 +35,51 @@ export class ProdutosService {
     return { p, l, offset: (p - 1) * l };
   }
 
-  // === ALTERAÇÃO: catálogo geral (paginado) ===
+  private buildSearchWhere(q: string) {
+    // DB2: UPPER + LIKE, e busca também por EAN e IDPRODUTO
+    // PRODUTO_GRADE que você falou:
+    // IDPRODUTO / IDCODBARPROD / DESCRRESPRODUTO / FLAGINATIVO = 'F'
+    if (!q) {
+      return { where: '1=1', binds: [] as any[] };
+    }
+
+    const qq = `%${q}%`;
+    return {
+      where: `
+        (
+          UPPER(P.DESCRRESPRODUTO) LIKE UPPER(?) OR
+          VARCHAR(P.IDCODBARPROD) LIKE ? OR
+          VARCHAR(P.IDPRODUTO) LIKE ?
+        )
+      `,
+      binds: [qq, qq, qq],
+    };
+  }
+
+  // ============================================================
+  // 1) CATÁLOGO: lista produtos do DB2 (ativos) paginado
+  // ============================================================
   async search(params: SearchParams) {
     const { idLoja, q } = params;
     if (!idLoja) throw new BadRequestException('idLoja é obrigatório.');
 
     const { p, l, offset } = this.normalizePaging(params.page, params.limit);
 
-    // ✅ Exemplo: você vai adaptar para suas tabelas reais no DB2
-    // A ideia é trazer: idProduto, ean, descricao, ativo, etc.
+    const { where, binds } = this.buildSearchWhere((q ?? '').trim());
+
     const sql = `
-    SELECT
-      P.IDPRODUTO        AS IDPRODUTO,
-      P.IDCODBARPROD     AS EAN,
-      P.DESCRRESPRODUTO  AS DESCRICAO
-    FROM PRODUTO_GRADE P
-    WHERE P.FLAGINATIVO = 'F'
-      AND (
-        ? = '' OR
-        UPPER(P.DESCRRESPRODUTO) LIKE UPPER(?) OR
-        VARCHAR(P.IDCODBARPROD) LIKE ? OR
-        VARCHAR(P.IDPRODUTO) LIKE ?
-      )
-    ORDER BY P.DESCRRESPRODUTO
-    OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+      SELECT
+        P.IDPRODUTO        AS IDPRODUTO,
+        P.IDCODBARPROD     AS EAN,
+        P.DESCRRESPRODUTO  AS DESCRICAO
+      FROM PRODUTO_GRADE P
+      WHERE P.FLAGINATIVO = 'F'
+        AND ${where}
+      ORDER BY P.DESCRRESPRODUTO
+      OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
     `;
 
-    const binds: any[] = [];
-    if (q) {
-      binds.push(`%${q}%`, `%${q}%`);
-    }
-    binds.push(offset, l);
-
-    const rows = await this.db2.query(sql, binds);
+    const rows = await this.db2.query<any>(sql, [...binds, offset, l]);
 
     return {
       page: p,
@@ -63,64 +89,90 @@ export class ProdutosService {
     };
   }
 
-  // === ALTERAÇÃO: produtos SEM gôndola (paginado) ===
+  // ============================================================
+  // 2) SEM GÔNDOLA (COM ESTOQUE):
+  //    - pega locais da loja (loja_locais_estoque)
+  //    - consulta DB2 ESTOQUE_SALDO_ATUAL somando QTD por produto
+  //    - filtra somente QTD > 0
+  //    - remove os que já estão em gondola_produtos (Postgres)
+  // ============================================================
   async semGondola(params: SearchParams) {
     const { idLoja, q } = params;
     if (!idLoja) throw new BadRequestException('idLoja é obrigatório.');
 
     const { p, l, offset } = this.normalizePaging(params.page, params.limit);
 
-    // Ideia: DB2 produtos LEFT JOIN Postgres gondola_produtos
-    // Como DB2 não enxerga Postgres direto:
-    // ✅ solução prática agora: buscar do DB2 (paginado) e filtrar via Postgres NÃO escala bem.
-    // ✅ solução correta: criar endpoint SQL no seu backend que faça:
-    //    - listar do DB2
-    //    - e checar vínculo em POSTGRES por idProduto/idLoja (IN) (batelada)
-    // Eu deixo aqui a estratégia “batelada”:
+    // 1) pega a loja pra descobrir ID da empresa no DB2 (id_empresa_erp)
+    const loja = await this.lojaRepo.findOne({ where: { idLoja } as any });
+    if (!loja) throw new BadRequestException('Loja não encontrada.');
+    const idEmpresaDb2 = Number((loja as any).idEmpresaErp ?? (loja as any).id_empresa_erp);
+    if (!idEmpresaDb2) {
+      throw new BadRequestException('Loja sem id_empresa_erp (empresa DB2) configurada.');
+    }
 
-    // 1) traz do DB2 uma página de candidatos
+    // 2) locais de estoque configurados para a loja (VENDA/DEPOSITO/CD)
+    const locais = await this.lojaLocalRepo.find({
+      where: { idLoja } as any,
+    });
+
+    const idLocais = locais
+      .map((x) => Number(x.idLocalEstoque))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (idLocais.length === 0) {
+      return { page: p, limit: l, items: [], hasNext: false };
+    }
+
+    const { where, binds } = this.buildSearchWhere((q ?? '').trim());
+    const placeholders = idLocais.map(() => '?').join(', ');
+
+    // DB2: estoque_saldo_atual tem: IDPRODUTO, IDEMPRESA, IDLOCALESTOQUE, QTDATUALESTOQUE
+    // Queremos SOMAR por produto e manter > 0
     const sqlDb2 = `
       SELECT
-        P.IDPRODUTO   AS IDPRODUTO,
-        P.EAN        AS EAN,
-        P.DESCRICAO  AS DESCRICAO
-      FROM DBA.PRODUTOS P
-      WHERE 1=1
-        ${q ? `AND (UPPER(P.DESCRICAO) LIKE UPPER(?) OR P.EAN LIKE ?)` : ''}
-      ORDER BY P.DESCRICAO
+        P.IDPRODUTO        AS IDPRODUTO,
+        P.IDCODBARPROD     AS EAN,
+        P.DESCRRESPRODUTO  AS DESCRICAO,
+        COALESCE(SUM(ESA.QTDATUALESTOQUE), 0) AS QTD
+      FROM PRODUTO_GRADE P
+      JOIN ESTOQUE_SALDO_ATUAL ESA
+        ON ESA.IDPRODUTO = P.IDPRODUTO
+       AND ESA.IDEMPRESA = ?
+       AND ESA.IDLOCALESTOQUE IN (${placeholders})
+      WHERE P.FLAGINATIVO = 'F'
+        AND ${where}
+      GROUP BY
+        P.IDPRODUTO, P.IDCODBARPROD, P.DESCRRESPRODUTO
+      HAVING COALESCE(SUM(ESA.QTDATUALESTOQUE), 0) > 0
+      ORDER BY P.DESCRRESPRODUTO
       OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
     `;
 
-    const binds: any[] = [];
-    if (q) binds.push(`%${q}%`, `%${q}%`);
-    binds.push(offset, l);
-
-    const candidatos = await this.db2.query(sqlDb2, binds);
-
-    // 2) checa no Postgres quais já estão em gondola_produtos para esta loja
-    // ⚠️ você vai implementar esse método numa repo TypeORM do Postgres:
-    //    findIdsProdutosJaNaGondola({ idLoja, idsProdutos })
-    // Aqui é só o “contrato”:
-    const ids = candidatos.map((x: any) => Number(x.IDPRODUTO)).filter(Boolean);
-
-    const jaNaGondolaSet = new Set<number>(
-      await this.findIdsProdutosJaNaGondola(idLoja, ids),
+    const candidatos = await this.db2.query<any>(
+      sqlDb2,
+      [idEmpresaDb2, ...idLocais, ...binds, offset, l],
     );
 
-    const semGondola = candidatos.filter((x: any) => !jaNaGondolaSet.has(Number(x.IDPRODUTO)));
+    const ids = candidatos.map((x) => Number(x.IDPRODUTO)).filter(Boolean);
+    if (ids.length === 0) {
+      return { page: p, limit: l, items: [], hasNext: candidatos.length === l };
+    }
+
+    // 3) remove os que já estão na gôndola (Postgres)
+    const ja = await this.gondolaProdutoRepo.find({
+      select: ['idProduto'] as any,
+      where: { idLoja, idProduto: In(ids) } as any,
+    });
+
+    const jaSet = new Set<number>(ja.map((x) => Number(x.idProduto)));
+
+    const sem = candidatos.filter((x) => !jaSet.has(Number(x.IDPRODUTO)));
 
     return {
       page: p,
       limit: l,
-      items: semGondola,
-      hasNext: candidatos.length === l, // aproximado
+      items: sem,
+      hasNext: candidatos.length === l, // aproximado (ok pro MVP)
     };
   }
-
-  // === TODO: implementar com TypeORM no Postgres (gondola_produtos) ===
-  private async findIdsProdutosJaNaGondola(idLoja: number, idsProdutos: number[]): Promise<number[]> {
-    // retorno vazio por enquanto
-    return [];
-  }
 }
-// === FIM ARQUIVO NOVO ===

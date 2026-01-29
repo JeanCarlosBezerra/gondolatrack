@@ -16,6 +16,7 @@ import { Gondola } from './gondolas/gondola.entity';
 import { PosicaoGondola } from './gondolas/posicao-gondola.entity';
 import { ConferenciasModule } from './conferencia/conferencias.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { ProdutosModule } from './produtos/produtos_module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
     PosicoesGondolaModule,
     ConferenciasModule,
     FeatureFlagsModule,
+    ProdutosModule,
   ],
 })
 export class AppModule {}
