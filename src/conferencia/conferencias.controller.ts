@@ -1,10 +1,12 @@
-// exemplo: src/conferencia/conferencias.controller.ts
-import { Controller, Get, Param, ParseIntPipe, Post, Body, Req, UseGuards } from '@nestjs/common';
+// src/conferencia/conferencias.controller.ts
+import { Controller, Get, Param, ParseIntPipe, Post, Body, Req, UseGuards, Query } from '@nestjs/common';
 import { ConferenciasService } from './conferencias.service';
 import { CreateConferenciaDto } from './dto/create-conferencia.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { Request } from 'express';
-
+import { TenantGondolaGuard } from 'src/common/guards/tenant-gondola.guard';
+import { FeatureFlagGuard } from 'src/feature-flags/feature-flag.guard';
+@UseGuards(JwtAuthGuard, TenantGondolaGuard, FeatureFlagGuard('MOD_CONFERENCIAS'))
 @Controller('gondolas')
 export class ConferenciasController {
   constructor(private readonly service: ConferenciasService) {}
@@ -13,7 +15,7 @@ export class ConferenciasController {
   @Get(':idGondola/conferencia/ultima')
   async ultima(@Param('idGondola', ParseIntPipe) idGondola: number) {
     const ultima = await this.service.getUltima(idGondola);
-    return { ok: true, data: ultima }; // data pode ser null
+    return { ok: true, data: ultima };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -35,12 +37,14 @@ export class ConferenciasController {
     return this.service.criar(idGondola, dto, (req as any).user);
   }
 
-   @UseGuards(JwtAuthGuard)
-  @Get(':idGondola/conferencia/:idConferencia/divergencias')
-  async divergencias(
-    @Param('idGondola', ParseIntPipe) idGondola: number,
-    @Param('idConferencia', ParseIntPipe) idConferencia: number,
-  ) {
-    return this.service.getDivergencias(idGondola, idConferencia);
-  }
+@UseGuards(JwtAuthGuard)
+@Get(':idGondola/conferencia/:idConferencia/divergencias')
+async divergencias(
+  @Param('idGondola', ParseIntPipe) idGondola: number,
+  @Param('idConferencia', ParseIntPipe) idConferencia: number,
+  @Query('realtime') realtime?: string,
+) {
+  const isRealtime = realtime === '1' || realtime === 'true';
+  return this.service.getDivergencias(idGondola, idConferencia, { realtime: isRealtime });
+}
 }

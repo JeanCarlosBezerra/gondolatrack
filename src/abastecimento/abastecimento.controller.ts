@@ -8,12 +8,17 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { AbastecimentosService } from "./abastecimentos.service";
 import { GerarAbastecimentoDto } from "./dto/gerar-abastecimento.dto";
 import { AtualizarItensDto } from "./dto/atualizar-itens.dto";
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { TenantGondolaGuard } from 'src/common/guards/tenant-gondola.guard';
+import { FeatureFlagGuard } from 'src/feature-flags/feature-flag.guard';
 
+@UseGuards(JwtAuthGuard, TenantGondolaGuard, FeatureFlagGuard('MOD_ABASTECIMENTO'))
 @Controller("abastecimentos")
 export class AbastecimentosController {
   constructor(private readonly service: AbastecimentosService) {}

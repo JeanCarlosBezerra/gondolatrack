@@ -24,4 +24,24 @@ export class GondolaConferenciaItem {
 
   @Column({ name: 'qtd_conferida', type: 'numeric', precision: 14, scale: 3, default: 0 })
   qtdConferida: string; // ok manter string
+
+  @Column({
+    name: 'estoque_loja_snapshot',
+    type: 'numeric',
+    precision: 14,
+    scale: 3,
+    default: 0,
+    nullable: true,
+  })
+  estoqueLojaSnapshot?: string | null;
+
+// exemplo (ajuste o tipo conforme seu padrão: numeric/text)
+@Column({ name: 'estoque_venda', type: 'numeric', nullable: true })
+estoqueVenda?: string | null;
+
+@Column({ name: 'estoque_deposito', type: 'numeric', nullable: true })
+estoqueDeposito?: string | null;
+
+@Column({ name: 'estoque_loja_total', type: 'numeric', nullable: true })
+estoqueLojaTotal?: string | null;
 }

@@ -8,11 +8,13 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import type { StringValue } from "ms";
+import { UsuariosModule } from 'src/usuarios/usuarios.module';
 
 @Module({
   imports: [
     ConfigModule,
     PassportModule,
+    UsuariosModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

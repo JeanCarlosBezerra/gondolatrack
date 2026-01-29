@@ -15,14 +15,18 @@ export class Loja {
   @Column({ name: 'nome', type: 'varchar', length: 150 })
   nome: string;
 
-  // ✅ NOVO: IDEMPRESA do DB2 (para consultar estoque)
-  @Column({ name: 'id_empresa', type: 'bigint', nullable: true })
-  idEmpresa: number | null;
 
   @Column({ name: 'criado_em', type: 'timestamp', default: () => 'now()' })
   criadoEm: Date;
 
   @Column({ name: 'atualizado_em', type: 'timestamp', nullable: true })
   atualizadoEm: Date | null;
+
+  @Column({ name: 'id_empresa_tenant', type: 'bigint', nullable: true })
+  idEmpresaTenant: number | null;
+  
+  // ERP/DB2
+  @Column({ name: 'id_empresa_erp', type: 'bigint', nullable: true })
+  idEmpresaErp: number | null;
 }
 // === FIM ARQUIVO AJUSTADO ===

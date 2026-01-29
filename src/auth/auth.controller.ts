@@ -26,7 +26,7 @@ export class AuthController {
 
   @Post('logout')
   async logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('gt_token');
+    res.clearCookie('gt_token', { sameSite: 'lax' });
     return { ok: true };
   }
 

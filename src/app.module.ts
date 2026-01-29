@@ -15,6 +15,7 @@ import { Loja } from './lojas/loja.entity';
 import { Gondola } from './gondolas/gondola.entity';
 import { PosicaoGondola } from './gondolas/posicao-gondola.entity';
 import { ConferenciasModule } from './conferencia/conferencias.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { ConferenciasModule } from './conferencia/conferencias.module';
     GondolasModule,
     PosicoesGondolaModule,
     ConferenciasModule,
+    FeatureFlagsModule,
   ],
 })
 export class AppModule {}

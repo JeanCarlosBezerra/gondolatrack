@@ -9,11 +9,15 @@ import {
   Query,
   Body,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { CreateGondolaDto } from './dto/create-gondola.dto';
 import { UpdateGondolaDto } from './dto/update-gondola.dto';
 import { GondolasService } from './gondolas.service';
-
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { TenantGondolaGuard } from 'src/common/guards/tenant-gondola.guard';
+import { FeatureFlagGuard } from 'src/feature-flags/feature-flag.guard';
+@UseGuards(JwtAuthGuard, TenantGondolaGuard, FeatureFlagGuard('MOD_GONDOLAS'))
 @Controller('gondolas')
 export class GondolasController {
   constructor(private readonly gondolasService: GondolasService) {}
@@ -22,7 +26,7 @@ export class GondolasController {
   async list(@Query('idLoja') idLoja?: string) {
     return this.gondolasService.list(idLoja ? Number(idLoja) : undefined);
   }
-  
+
   @Get('all')
   findAll(@Query('idLoja') idLoja?: string) {
     const parsed = idLoja ? Number(idLoja) : undefined;

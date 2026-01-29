@@ -20,6 +20,8 @@ import { PosicoesGondolaService } from './posicoes-gondola.service';
 
 import { Loja } from '../lojas/loja.entity';
 import { LojaLocalEstoque } from '../lojas/loja-local-estoque.entity';
+import { TenantGondolaGuard } from 'src/common/guards/tenant-gondola.guard';
+import { FeatureFlagsModule } from 'src/feature-flags/feature-flags.module';
 
 @Module({
   imports: [
@@ -31,6 +33,7 @@ import { LojaLocalEstoque } from '../lojas/loja-local-estoque.entity';
       LojaLocalEstoque,
     ]),
     Db2Module, // <<<<<< [ALTERADO] isso resolve o DI do Db2Service
+    FeatureFlagsModule,
   ],
   controllers: [
     GondolasController,
@@ -41,6 +44,7 @@ import { LojaLocalEstoque } from '../lojas/loja-local-estoque.entity';
     GondolasService,
     GondolaProdutosService,
     PosicoesGondolaService,
+    TenantGondolaGuard,
   ],
 })
 export class GondolasModule {}

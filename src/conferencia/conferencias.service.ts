@@ -9,6 +9,16 @@ import { ListarConferenciasDto } from './dto/listar-conferencias.dto'; // [NOVO]
 import { Db2Service } from '../db2/db2.service';
 import { DivergenciasResponseDto, DivergenciaItemDto } from './dto/divergencia.dto';
 
+
+function toNum(v: any): number {
+  const n = Number(String(v ?? 0).replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
 @Injectable()
 export class ConferenciasService {
   constructor(
@@ -58,8 +68,14 @@ export class ConferenciasService {
     return Number.isFinite(qtd) ? qtd : 0;
   }
 
-  async getDivergencias(idGondola: number, idConferencia: number) {
-  // 1) Busca conferência + itens
+async getDivergencias(
+  idGondola: number,
+  idConferencia: number,
+  opts?: { realtime?: boolean },
+) {
+  const realtime = !!opts?.realtime;
+
+  // 1) Busca conferência + itens (do Postgres)
   const conf = await this.confRepo.findOne({
     where: { idConferencia, idGondola },
     relations: { itens: true },
@@ -68,6 +84,37 @@ export class ConferenciasService {
   if (!conf) {
     throw new NotFoundException('Conferência não encontrada.');
   }
+
+  // Se NÃO for realtime => devolve snapshot (sem DB2)
+  // (mantém compatibilidade: se algum campo estiver null, cai no estoque_loja_snapshot)
+  if (!realtime) {
+    const itensSnapshot = (conf.itens ?? []).map((it: any) => {
+      const venda = it.estoqueVenda ?? null;
+      const deposito = it.estoqueDeposito ?? null;
+
+      const lojaTotal =
+        it.estoqueLojaTotal ??
+        // fallback: usa legado (estoque_loja_snapshot era o total da loja)
+        it.estoqueLojaSnapshot ??
+        null;
+
+      return {
+        ...it,
+        estoqueVenda: venda,
+        estoqueDeposito: deposito,
+        estoqueLojaTotal: lojaTotal,
+        // não manda “estoqueCd/estoqueTotal” se você não estiver usando
+      };
+    });
+
+    return {
+      ...conf,
+      itens: itensSnapshot,
+      mode: 'SNAPSHOT',
+    };
+  }
+
+  // === A partir daqui: REALTIME (consulta DB2) ===
 
   // 2) Descobre a loja da gôndola
   const gondolaRow = await this.confRepo.query(
@@ -80,10 +127,10 @@ export class ConferenciasService {
     throw new NotFoundException('Não foi possível identificar a loja da gôndola.');
   }
 
-  // 3) Locais da LOJA (papéis VENDA/DEPOSITO) -> estoque "loja"
+  // 3) Locais da LOJA (VENDA/DEPOSITO)
   const locaisLojaRows = await this.confRepo.query(
     `
-      SELECT id_empresa, id_local_estoque
+      SELECT id_empresa, id_local_estoque, papel_na_loja
       FROM gondolatrack.loja_locais_estoque
       WHERE id_loja = $1
         AND papel_na_loja IN ('VENDA', 'DEPOSITO')
@@ -92,131 +139,260 @@ export class ConferenciasService {
   );
 
   const idEmpresaLoja = Number(locaisLojaRows?.[0]?.id_empresa);
-  const idsLocaisLoja = (locaisLojaRows ?? [])
+
+  const idsLocaisVenda = (locaisLojaRows ?? [])
+    .filter((r: any) => String(r.papel_na_loja).toUpperCase() === 'VENDA')
     .map((r: any) => Number(r.id_local_estoque))
     .filter((n: any) => Number.isFinite(n));
 
-  // 4) Locais do CD (regra que você já usa: IDEMPRESA_CD = 9 e papel 'CD')
-  const IDEMPRESA_CD = 9;
-
-  const locaisCdRows = await this.confRepo.query(
-    `
-      SELECT id_local_estoque
-      FROM gondolatrack.loja_locais_estoque
-      WHERE papel_na_loja = 'CD'
-        AND id_empresa = $1
-    `,
-    [IDEMPRESA_CD],
-  );
-
-  const idsLocaisCd = (locaisCdRows ?? [])
+  const idsLocaisDeposito = (locaisLojaRows ?? [])
+    .filter((r: any) => String(r.papel_na_loja).toUpperCase() === 'DEPOSITO')
     .map((r: any) => Number(r.id_local_estoque))
     .filter((n: any) => Number.isFinite(n));
 
-  // 5) Enriquecer cada item com estoque do sistema
-  const itensEnriquecidos = await Promise.all(
-    (conf.itens ?? []).map(async (it) => {
+  // 4) Enriquecer cada item com estoque em tempo real do DB2
+  const itensRealtime = await Promise.all(
+    (conf.itens ?? []).map(async (it: any) => {
       const idProdutoNum = Number(it.idProduto);
 
-      // Se não tiver idProduto válido, não dá para consultar DB2
       if (!Number.isFinite(idProdutoNum)) {
         return {
           ...it,
-          estoqueLoja: null,
-          estoqueCd: null,
-          estoqueTotal: null,
+          estoqueVenda: null,
+          estoqueDeposito: null,
+          estoqueLojaTotal: null,
         };
       }
 
-      // estoque loja = soma locais VENDA/DEPOSITO
-      const estoqueLoja =
-        Number.isFinite(idEmpresaLoja) && idsLocaisLoja.length
+      const estoqueVenda =
+        Number.isFinite(idEmpresaLoja) && idsLocaisVenda.length
           ? await this.getEstoqueDb2PorLocais({
               idEmpresa: idEmpresaLoja,
               idProduto: idProdutoNum,
-              idLocaisEstoque: idsLocaisLoja,
+              idLocaisEstoque: idsLocaisVenda,
             })
           : 0;
 
-      // estoque CD = soma locais do CD (empresa 9)
-      const estoqueCd =
-        idsLocaisCd.length
+      const estoqueDeposito =
+        Number.isFinite(idEmpresaLoja) && idsLocaisDeposito.length
           ? await this.getEstoqueDb2PorLocais({
-              idEmpresa: IDEMPRESA_CD,
+              idEmpresa: idEmpresaLoja,
               idProduto: idProdutoNum,
-              idLocaisEstoque: idsLocaisCd,
+              idLocaisEstoque: idsLocaisDeposito,
             })
           : 0;
 
-      const estoqueTotal = (estoqueLoja ?? 0) + (estoqueCd ?? 0);
+      const estoqueLojaTotal = (estoqueVenda ?? 0) + (estoqueDeposito ?? 0);
 
       return {
         ...it,
-        estoqueLoja,
-        estoqueCd,
-        estoqueTotal,
+        estoqueVenda,
+        estoqueDeposito,
+        estoqueLojaTotal,
       };
     }),
   );
 
-  // 6) Retorna o mesmo "shape" que o front já entende
   return {
     ...conf,
-    itens: itensEnriquecidos,
+    itens: itensRealtime,
+    mode: 'REALTIME',
   };
 }
 
-  async getUltima(idGondola: number) {
-    const ultima = await this.confRepo.findOne({
-      where: { idGondola },
-      order: { criadoEm: 'DESC' },
-      relations: { itens: true },
-    });
-    
-    return ultima ?? null;
+  // [NOVO] Calcula resumo da conferência baseado no estoque da LOJA
+private calcularResumoLojaSnapshot(conf: GondolaConferencia) {
+  const itens = conf.itens ?? [];
+
+  let qtdItens = itens.length;
+  let totalConferido = 0;
+  let qtdDivergentesLoja = 0;
+  let somaDivergLoja = 0;
+
+  const EPS = 0.0005;
+
+  for (const it of itens) {
+    const qtd = toNum(it.qtdConferida);
+    const estoqueLoja = toNum(it.estoqueLojaTotal); // 👈 snapshot
+
+    totalConferido += qtd;
+
+    const diff = round3(qtd - estoqueLoja);
+    if (Math.abs(diff) > EPS) {
+      qtdDivergentesLoja += 1;
+      somaDivergLoja += diff;
+    }
   }
 
+  return {
+    qtdItens,
+    totalConferido: round3(totalConferido),
+    qtdDivergentesLoja,
+    somaDivergLoja: round3(somaDivergLoja),
+  };
+}
 
+
+// === INÍCIO ALTERAÇÃO: src/conferencia/conferencias.service.ts (criar) ===
 async criar(idGondola: number, dto: CreateConferenciaDto, user: any) {
   if (!user?.username) throw new NotFoundException('Usuário não identificado no token.');
 
+  // 1) Descobre loja
+  const gondolaRow = await this.confRepo.query(
+    `SELECT id_loja FROM gondolatrack.gondolas WHERE id_gondola = $1`,
+    [idGondola],
+  );
+
+  const idLoja = Number(gondolaRow?.[0]?.id_loja);
+  if (!Number.isFinite(idLoja)) {
+    throw new NotFoundException('Não foi possível identificar a loja da gôndola.');
+  }
+
+  // 2) Locais da LOJA (VENDA/DEPOSITO)  ✅ PRECISA trazer papel_na_loja
+  const locaisLojaRows = await this.confRepo.query(
+    `
+      SELECT id_empresa, id_local_estoque, papel_na_loja
+      FROM gondolatrack.loja_locais_estoque
+      WHERE id_loja = $1
+        AND papel_na_loja IN ('VENDA', 'DEPOSITO')
+    `,
+    [idLoja],
+  );
+
+  const idEmpresaLoja = Number(locaisLojaRows?.[0]?.id_empresa);
+
+  const idsVenda = (locaisLojaRows ?? [])
+    .filter((r: any) => String(r.papel_na_loja).toUpperCase() === 'VENDA')
+    .map((r: any) => Number(r.id_local_estoque))
+    .filter((n: any) => Number.isFinite(n));
+
+  const idsDeposito = (locaisLojaRows ?? [])
+    .filter((r: any) => String(r.papel_na_loja).toUpperCase() === 'DEPOSITO')
+    .map((r: any) => Number(r.id_local_estoque))
+    .filter((n: any) => Number.isFinite(n));
+
+  // 3) Cria conferência
   const conf = this.confRepo.create({
     idGondola,
     usuario: user.username,
     nome: user.nome ?? null,
     itens: [],
+    qtdItens: 0,
+    totalConferido: '0',
+    qtdDivergentesLoja: 0,
+    somaDivergLoja: '0',
   });
 
-  conf.itens = (dto.itens ?? []).map((i) => {
+  // 4) Itens + snapshots
+  conf.itens = await Promise.all((dto.itens ?? []).map(async (i) => {
+    const idProdutoNum = i.idProduto != null ? Number(i.idProduto) : null;
+
+    let estoqueVendaSnapshot = 0;
+    let estoqueDepositoSnapshot = 0;
+
+    if (Number.isFinite(idProdutoNum) && Number.isFinite(idEmpresaLoja)) {
+      if (idsVenda.length > 0) {
+        estoqueVendaSnapshot = await this.getEstoqueDb2PorLocais({
+          idEmpresa: idEmpresaLoja,
+          idProduto: idProdutoNum!,
+          idLocaisEstoque: idsVenda,
+        });
+      }
+
+      if (idsDeposito.length > 0) {
+        estoqueDepositoSnapshot = await this.getEstoqueDb2PorLocais({
+          idEmpresa: idEmpresaLoja,
+          idProduto: idProdutoNum!,
+          idLocaisEstoque: idsDeposito,
+        });
+      }
+    }
+
+    const estoqueLojaTotalSnapshot = (estoqueVendaSnapshot ?? 0) + (estoqueDepositoSnapshot ?? 0);
+
     const item = this.itemRepo.create({
       idProduto: i.idProduto != null ? String(i.idProduto) : null,
       ean: i.ean ?? null,
       descricao: i.descricao ?? null,
       qtdConferida: String(i.qtdConferida ?? 0),
+
+      // legado (snapshot total da loja)
+      estoqueLojaSnapshot: String(estoqueLojaTotalSnapshot ?? 0),
+
+      // novos snapshots
+      estoqueVenda: String(estoqueVendaSnapshot ?? 0),
+      estoqueDeposito: String(estoqueDepositoSnapshot ?? 0),
+      estoqueLojaTotal: String(estoqueLojaTotalSnapshot ?? 0),
     });
 
-    // garante o vínculo (FK)
     item.conferencia = conf;
     return item;
-  });
+  }));
 
+  // 5) salva conf + itens
   await this.confRepo.save(conf);
 
+  // 6) recarrega com itens
+  const confSalva = await this.confRepo.findOne({
+    where: { idConferencia: conf.idConferencia, idGondola },
+    relations: { itens: true },
+  });
+  if (!confSalva) throw new NotFoundException('Falha ao salvar conferência.');
+
+  // 7) resumo (mantém como está)
+  const resumo = this.calcularResumoLojaSnapshot(confSalva);
+
+  await this.confRepo.update(
+    { idConferencia: confSalva.idConferencia },
+    {
+      qtdItens: resumo.qtdItens,
+      totalConferido: String(resumo.totalConferido),
+      qtdDivergentesLoja: resumo.qtdDivergentesLoja,
+      somaDivergLoja: String(resumo.somaDivergLoja),
+    },
+  );
+
+  // 8) atualiza gôndola
   await this.dataSource.query(
     `
-    UPDATE gondolatrack.gondolas
-       SET flag_conferida = true,
-           ultima_conferencia_id = $1,
-           ultima_conferencia_em = $2,
-           ultima_conferencia_usuario = $3,
-           atualizado_em = now()
-     WHERE id_gondola = $4
+      UPDATE gondolatrack.gondolas
+         SET flag_conferida = true,
+             ultima_conferencia_id = $1,
+             ultima_conferencia_em = $2,
+             ultima_conferencia_usuario = $3,
+             atualizado_em = now()
+       WHERE id_gondola = $4
     `,
-    [conf.idConferencia, conf.criadoEm, conf.usuario, idGondola],
+    [confSalva.idConferencia, confSalva.criadoEm, confSalva.usuario, idGondola],
   );
 
   return this.getUltima(idGondola);
 }
+// === FIM ALTERAÇÃO ===
+
+
+
+async getUltima(idGondola: number) {
+  const ultima = await this.confRepo.findOne({
+    where: { idGondola },
+    order: { criadoEm: 'DESC' },
+    relations: { itens: true },
+  });
+
+  if (!ultima) return null;
+
+  const EPS = 0.0005;
+
+  const hasDiv = (ultima.itens ?? []).some((it: any) => {
+    const qtd = Number(it.qtdConferida ?? 0);
+    const est = Number(it.estoqueLojaSnapshot ?? 0);
+    return Number.isFinite(qtd) && Number.isFinite(est) && Math.abs(qtd - est) > EPS;
+  });
+
+  return { ...ultima, status: hasDiv ? 'DIVERGENTE' : 'CONFERIDA' };
+}
+
+  // === FIM ALTERAÇÃO ===
 
  async listar(q: ListarConferenciasDto) {
     // filtros (todos opcionais)
@@ -291,5 +467,10 @@ async criar(idGondola: number, dto: CreateConferenciaDto, user: any) {
   }
 
 // === FIM TRECHO AJUSTADO ===
+
+
+
+
+
 }
 

@@ -1,9 +1,13 @@
 // === INÍCIO ARQUIVO: src/gondolas/gondola-produtos.controller.ts ===
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common'; 
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 //                                    ^^^^^^ ALTERAÇÃO: import Delete
 import { GondolaProdutosService } from './gondola-produtos.service';
 import { AddProdutoGondolaDto } from './dto/add-produto-gondola.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { TenantGondolaGuard } from '../common/guards/tenant-gondola.guard';
+import { FeatureFlagGuard } from '../feature-flags/feature-flag.guard';
 
+@UseGuards(JwtAuthGuard, TenantGondolaGuard, FeatureFlagGuard('MOD_PRODUTOS_GONDOLA'))
 @Controller('gondolas')
 export class GondolaProdutosController {
   constructor(private readonly service: GondolaProdutosService) {}

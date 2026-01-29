@@ -1,18 +1,21 @@
-// === INÍCIO ARQUIVO: src/conferencia/dto/divergencia.dto.ts ===
+// === INÍCIO ALTERAÇÃO: src/conferencia/dto/divergencia.dto.ts ===
 export class DivergenciaItemDto {
   idProduto!: number;
   descricao!: string | null;
   ean!: string | null;
 
-  qtdContada!: number;     // qtd_conferida
-  estoqueLoja!: number;    // sistema (loja)
-  divergLoja!: number;     // contada - loja
+  qtdContada!: number;           // qtd_conferida
 
-  estoqueCd!: number;      // sistema (CD)
-  divergCd!: number;       // contada - CD
+  // === NOVO: QUEBRA DA LOJA ===
+  estoqueVenda!: number;         // locais VENDA
+  estoqueDeposito!: number;      // locais DEPOSITO
+  estoqueLojaTotal!: number;     // VENDA + DEPOSITO
 
-  estoqueTotal!: number;   // loja + CD
-  divergTotal!: number;    // contada - (loja+CD)
+  divergLoja!: number;           // qtdContada - estoqueLojaTotal
+
+  // === OPCIONAL (se você ainda usa CD no mesmo relatório) ===
+  // estoqueCd?: number;
+  // divergCd?: number;
 }
 
 export class DivergenciasResponseDto {
@@ -23,10 +26,11 @@ export class DivergenciasResponseDto {
   resumo!: {
     itens: number;
     divergentesLoja: number;
-    divergentesTotal: number;
     somaDivergLoja: number;
   };
 
+  // mantenha "data" se seu backend já responde assim,
+  // mas o front hoje está lendo "itens".
   data!: DivergenciaItemDto[];
 }
-// === FIM ARQUIVO ===
+// === FIM ALTERAÇÃO ===

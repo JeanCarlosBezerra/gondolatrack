@@ -6,12 +6,14 @@ import { AbastecimentosService } from "./abastecimentos.service";
 import { Abastecimento } from "./entities/abastecimento.entity";
 import { AbastecimentoItem } from "./entities/abastecimento-item.entity";
 import { Db2Module } from "../db2/db2.module";
+import { FeatureFlagsModule } from "src/feature-flags/feature-flags.module";
 
 @Module({
   imports: [
     // === ALTERADO: entidades do Postgres usadas pelo abastecimento ===
     TypeOrmModule.forFeature([Abastecimento, AbastecimentoItem]),
     Db2Module,
+    FeatureFlagsModule,
   ],
   controllers: [AbastecimentosController],
   providers: [AbastecimentosService],

@@ -9,6 +9,11 @@ import {
 } from 'typeorm';
 import { Gondola } from './gondola.entity';
 
+const numericTransformer = {
+  to: (value: number) => value,
+  from: (value: string | null) => (value == null ? 0 : Number(value)),
+};
+
 @Entity({ name: 'gondola_produtos', schema: 'gondolatrack' })
 @Unique('UQ_LOJA_PRODUTO', ['idLoja', 'idProduto'])
 @Unique('UQ_GONDOLA_PRODUTO', ['idGondola', 'idProduto'])
@@ -42,8 +47,35 @@ export class GondolaProduto {
   @Column({ name: 'maximo', type: 'int' })
   maximo: number;
 
-  @Column({ name: 'estoque_atual', type: 'int', default: 0 })
-  estoqueAtual: number;
+@Column({
+  name: 'estoque_atual',
+  type: 'numeric',
+  precision: 14,
+  scale: 3,
+  default: 0,
+  transformer: numericTransformer,
+})
+estoqueAtual: number;
+
+@Column({
+  name: 'estoque_venda',
+  type: 'numeric',
+  precision: 14,
+  scale: 3,
+  default: 0,
+  transformer: numericTransformer,
+})
+estoqueVenda: number;
+
+@Column({
+  name: 'estoque_deposito',
+  type: 'numeric',
+  precision: 14,
+  scale: 3,
+  default: 0,
+  transformer: numericTransformer,
+})
+estoqueDeposito: number;
 
   @Column({ name: 'atualizado_em', type: 'timestamp', default: () => 'now()' })
   atualizadoEm: Date;
