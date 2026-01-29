@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FeatureFlagsService } from './feature-flags.service';
@@ -10,25 +10,34 @@ export class FeatureFlagsController {
   constructor(private readonly service: FeatureFlagsService) {}
 
   @Get('me')
-  async me(@Req() req: Request) {
-    const idEmpresa = Number((req as any)?.user?.idEmpresa);
-    return {
-      ok: true,
-      idEmpresa,
-      flags: {
-      MOD_LOJAS: await this.service.isEnabled(idEmpresa, 'MOD_LOJAS'),
-      MOD_GONDOLAS: await this.service.isEnabled(idEmpresa, 'MOD_GONDOLAS'),
-      MOD_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_PRODUTOS'),
-      MOD_ABASTECIMENTO: await this.service.isEnabled(idEmpresa, 'MOD_ABASTECIMENTO'),
-      MOD_CONFERENCIAS: await this.service.isEnabled(idEmpresa, 'MOD_CONFERENCIAS'),
-      MOD_RELATORIOS: await this.service.isEnabled(idEmpresa, 'MOD_RELATORIOS'),
-
-      // ✅ novo
-      MOD_INSERIR_LOJA: await this.service.isEnabled(idEmpresa, 'MOD_INSERIR_LOJA'),
-      MOD_CATALOGO_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_CATALOGO_PRODUTOS'),
-      },
-    };
-  }
+@Get('me')
+    async me(@Req() req: Request) {
+      const raw = (req as any)?.user?.idEmpresa;
+      const idEmpresa = Number(raw);
+    
+      if (!Number.isFinite(idEmpresa)) {
+        // evita 500 e deixa claro que é auth/payload
+        throw new UnauthorizedException('Usuário sem idEmpresa no token');
+      }
+  
+      return {
+        ok: true,
+        idEmpresa,
+        flags: {
+          MOD_LOJAS: await this.service.isEnabled(idEmpresa, 'MOD_LOJAS'),
+          MOD_GONDOLAS: await this.service.isEnabled(idEmpresa, 'MOD_GONDOLAS'),
+          MOD_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_PRODUTOS'),
+          MOD_PRODUTOS_GONDOLA: await this.service.isEnabled(idEmpresa, 'MOD_PRODUTOS_GONDOLA'),
+          MOD_CATALOGO_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_CATALOGO_PRODUTOS'),
+          MOD_ABASTECIMENTO: await this.service.isEnabled(idEmpresa, 'MOD_ABASTECIMENTO'),
+          MOD_CONFERENCIAS: await this.service.isEnabled(idEmpresa, 'MOD_CONFERENCIAS'),
+          MOD_RELATORIOS: await this.service.isEnabled(idEmpresa, 'MOD_RELATORIOS'),
+        
+          // ação específica:
+          MOD_INSERIR_LOJA: await this.service.isEnabled(idEmpresa, 'MOD_INSERIR_LOJA'),
+        },
+      };
+    }
 
   @Get(':idEmpresa')
   async list(@Param('idEmpresa') idEmpresa: string) {
