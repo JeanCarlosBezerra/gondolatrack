@@ -41,12 +41,11 @@ export class AuthService {
         : entry.memberOf ? [entry.memberOf] : [];
 
       // >>> TRAVA DE SEGURANÇA: só auto-cadastra se estiver no grupo do AD
-      const allowAll = String(this.config.get('GT_ALLOW_AUTO_CADASTRO_ALL') ?? 'false').toLowerCase() === 'true';
-
-      const allowedAutoCadastro =
-        allowAll ||
-        groups.some((g: string) => String(g).toUpperCase().includes('GONDOLATRACK_USERS'));
-
+        const allowAll = String(this.config.get('ALLOW_AUTO_CADASTRO')).toLowerCase() === 'true';
+        
+        const allowedAutoCadastro = allowAll
+          ? true
+          : groups.some((g: string) => String(g).toUpperCase().includes('GONDOLATRACK_USERS'));
       // tenta pegar tenant cadastrado; se não existir, auto-cadastra (se allowed)
       let tenant: { idEmpresa: number; nome: string | null };
 
