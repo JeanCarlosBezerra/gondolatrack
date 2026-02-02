@@ -292,7 +292,7 @@ async confirmar(idAbastecimento: string) {
 
     // 1) Busca loja + empresa no Postgres
     const loja = await this.dataSource.query(
-      `SELECT id_loja, id_empresa, nome FROM gondolatrack.lojas WHERE id_loja = $1`,
+      `SELECT id_loja, id_empresa_erp, nome FROM gondolatrack.lojas WHERE id_loja = $1`,
       [dto.idLoja],
     );
     if (!loja?.length) throw new BadRequestException("Loja não encontrada.");
