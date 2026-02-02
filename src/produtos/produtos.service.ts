@@ -36,25 +36,41 @@ export class ProdutosService {
   }
 
   private buildSearchWhere(q: string) {
-    // DB2: UPPER + LIKE, e busca também por EAN e IDPRODUTO
-    // PRODUTO_GRADE que você falou:
-    // IDPRODUTO / IDCODBARPROD / DESCRRESPRODUTO / FLAGINATIVO = 'F'
-    if (!q) {
-      return { where: '1=1', binds: [] as any[] };
-    }
+  const qq = (q ?? '').trim();
+  if (!qq) return { where: '1=1', binds: [] as any[] };
 
-    const qq = `%${q}%`;
-    return {
-      where: `
-        (
-          UPPER(P.DESCRRESPRODUTO) LIKE UPPER(?) OR
-          VARCHAR(P.IDCODBARPROD) LIKE ? OR
-          VARCHAR(P.IDPRODUTO) LIKE ?
-        )
-      `,
-      binds: [qq, qq, qq],
-    };
+  // se for só dígitos, tenta match exato (rápido e indexável)
+  const isDigits = /^\d+$/.test(qq);
+
+  if (isDigits) {
+    const n = Number(qq);
+    if (Number.isFinite(n)) {
+      return {
+        where: `
+          (
+            P.IDPRODUTO = ? OR
+            P.IDCODBARPROD = ? OR
+            UPPER(P.DESCRRESPRODUTO) LIKE UPPER(?)
+          )
+        `,
+        binds: [n, n, `%${qq}%`],
+      };
+    }
   }
+
+  // texto: mantém LIKE
+  return {
+    where: `
+      (
+        UPPER(P.DESCRRESPRODUTO) LIKE UPPER(?) OR
+        VARCHAR(P.IDCODBARPROD) LIKE ? OR
+        VARCHAR(P.IDPRODUTO) LIKE ?
+      )
+    `,
+    binds: [`%${qq}%`, `%${qq}%`, `%${qq}%`],
+  };
+}
+
 
   // ============================================================
   // 1) CATÁLOGO: lista produtos do DB2 (ativos) paginado
@@ -125,6 +141,8 @@ export class ProdutosService {
 
     const { where, binds } = this.buildSearchWhere((q ?? '').trim());
     const placeholders = idLocais.map(() => '?').join(', ');
+    const qq = (q ?? '').trim();
+    const orderBy = qq ? 'ORDER BY P.DESCRRESPRODUTO' : '';
 
     // DB2: estoque_saldo_atual tem: IDPRODUTO, IDEMPRESA, IDLOCALESTOQUE, QTDATUALESTOQUE
     // Queremos SOMAR por produto e manter > 0
@@ -144,35 +162,33 @@ export class ProdutosService {
       GROUP BY
         P.IDPRODUTO, P.IDCODBARPROD, P.DESCRRESPRODUTO
       HAVING COALESCE(SUM(ESA.QTDATUALESTOQUE), 0) > 0
-      ORDER BY P.DESCRRESPRODUTO
+      ${orderBy}
       OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
     `;
 
+    const take = Math.min(200, l * 4);
+
     const candidatos = await this.db2.query<any>(
       sqlDb2,
-      [idEmpresaDb2, ...idLocais, ...binds, offset, l],
+      [idEmpresaDb2, ...idLocais, ...binds, offset, take],
     );
-
+    
     const ids = candidatos.map((x) => Number(x.IDPRODUTO)).filter(Boolean);
-    if (ids.length === 0) {
-      return { page: p, limit: l, items: [], hasNext: candidatos.length === l };
-    }
-
-    // 3) remove os que já estão na gôndola (Postgres)
+    
     const ja = await this.gondolaProdutoRepo.find({
       select: ['idProduto'] as any,
       where: { idLoja, idProduto: In(ids) } as any,
     });
-
+    
     const jaSet = new Set<number>(ja.map((x) => Number(x.idProduto)));
-
+    
     const sem = candidatos.filter((x) => !jaSet.has(Number(x.IDPRODUTO)));
-
+    
     return {
       page: p,
       limit: l,
-      items: sem,
-      hasNext: candidatos.length === l, // aproximado (ok pro MVP)
+      items: sem.slice(0, l),
+      hasNext: candidatos.length === take, // aproximado
     };
   }
 }
