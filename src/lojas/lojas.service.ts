@@ -5,12 +5,15 @@ import { Repository } from 'typeorm';
 import { Loja } from './loja.entity';
 import { CreateLojaDto } from './dto/create-loja.dto';
 import { UpdateLojaDto } from './dto/update-loja.dto';
+import { LojaLocalEstoque } from './loja-local-estoque.entity';
 
 @Injectable()
 export class LojasService {
   constructor(
     @InjectRepository(Loja)
     private readonly repo: Repository<Loja>,
+    @InjectRepository(LojaLocalEstoque)
+    private readonly lojaLocalEstoqueRepo: Repository<LojaLocalEstoque>,
   ) {}
 
   listarTodas() {
@@ -36,5 +39,12 @@ export class LojasService {
   async remover(idLoja: number) {
     await this.repo.delete({ idLoja });
     return { success: true };
+  }
+
+  async listarLocaisEstoque(idLoja: number) {
+    return this.lojaLocalEstoqueRepo.find({
+      where: { idLoja },
+      order: { papelNaLoja: 'ASC' },
+    });
   }
 }

@@ -3,6 +3,7 @@ import { Column, Entity, ManyToOne, JoinColumn, PrimaryGeneratedColumn } from 't
 import { Loja } from '../lojas/loja.entity';
 import { OneToMany } from 'typeorm';
 import { PosicaoGondola } from './posicao-gondola.entity';
+import { LojaLocalEstoque } from 'src/lojas/loja-local-estoque.entity';
 
 @Entity({
   name: 'gondolas',          // tabela gondolas (minúsculo)
@@ -93,6 +94,12 @@ export class Gondola {
   @Column({ name: 'ultima_conferencia_usuario', type: 'varchar', length: 120, nullable: true })
   ultimaConferenciaUsuario: string | null;
 
+  @ManyToOne(() => LojaLocalEstoque, { eager: true })
+  @JoinColumn({ name: 'id_loja_local_estoque' })
+  localEstoque: LojaLocalEstoque;
+  
+  @Column({ name: 'id_loja_local_estoque', type: 'bigint' })
+  idLojaLocalEstoque: number;  
   
 }
 // === FIM ARQUIVO ===

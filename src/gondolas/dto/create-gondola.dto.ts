@@ -26,4 +26,8 @@ export class CreateGondolaDto {
   @IsInt()
   @Min(1)
   idResponsavel?: number;
+
+  @IsInt()
+  @Min(1)
+  idLojaLocalEstoque: number;
 }

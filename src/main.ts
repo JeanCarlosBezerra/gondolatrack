@@ -11,10 +11,14 @@
     app.use(cookieParser()); // ✅ ADICIONAR
 
     app.enableCors({
-      origin: ['http://localhost:3000', 'http://172.28.7.6:3000'],
+      origin: [
+        "http://localhost:3000",
+        "http://172.28.7.6:3000",
+        "https://gondola.dicasaweb.com.br",
+      ],
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
     });
 
     app.useGlobalPipes(

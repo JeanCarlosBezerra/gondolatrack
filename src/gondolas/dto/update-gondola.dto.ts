@@ -1,7 +1,7 @@
 // === INÍCIO: src/gondolas/dto/update-gondola.dto.ts ===
 
 // === ALTERADO: adicionados decorators para ValidationPipe (whitelist) não limpar o body ===
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateGondolaDto {
@@ -32,6 +32,11 @@ export class UpdateGondolaDto {
   @Type(() => Number)
   @IsInt()
   idResponsavel?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  idLojaLocalEstoque?: number;
 }
 
 // === FIM ===

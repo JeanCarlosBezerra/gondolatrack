@@ -50,4 +50,9 @@ export class LojasController {
   async remover(@Param('id', ParseIntPipe) id: number) {
     return this.lojasService.remover(id);
   }
+
+  @Get(':idLoja/locais-estoque')
+  async listarLocais(@Param('idLoja') idLoja: number) {
+    return this.lojasService.listarLocaisEstoque(idLoja);
+  }
 }
