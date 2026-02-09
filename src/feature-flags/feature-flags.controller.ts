@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Put, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+// ✅ src/feature-flags/feature-flags.controller.ts
+import { Controller, Get, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FeatureFlagsService } from './feature-flags.service';
-import { SetFeatureFlagDto } from './dto/set-feature-flag.dto';
+import { FEATURE_CATALOG } from './feature-flags.catalog';
 
 @UseGuards(JwtAuthGuard)
 @Controller('feature-flags')
@@ -10,46 +11,30 @@ export class FeatureFlagsController {
   constructor(private readonly service: FeatureFlagsService) {}
 
   @Get('me')
-@Get('me')
-    async me(@Req() req: Request) {
-      const raw = (req as any)?.user?.idEmpresa;
-      const idEmpresa = Number(raw);
-    
-      if (!Number.isFinite(idEmpresa)) {
-        // evita 500 e deixa claro que é auth/payload
-        throw new UnauthorizedException('Usuário sem idEmpresa no token');
-      }
-  
-      return {
-        ok: true,
-        idEmpresa,
-        flags: {
-          MOD_LOJAS: await this.service.isEnabled(idEmpresa, 'MOD_LOJAS'),
-          MOD_GONDOLAS: await this.service.isEnabled(idEmpresa, 'MOD_GONDOLAS'),
-          MOD_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_PRODUTOS'),
-          MOD_PRODUTOS_GONDOLA: await this.service.isEnabled(idEmpresa, 'MOD_PRODUTOS_GONDOLA'),
-          MOD_CATALOGO_PRODUTOS: await this.service.isEnabled(idEmpresa, 'MOD_CATALOGO_PRODUTOS'),
-          MOD_ABASTECIMENTO: await this.service.isEnabled(idEmpresa, 'MOD_ABASTECIMENTO'),
-          MOD_CONFERENCIAS: await this.service.isEnabled(idEmpresa, 'MOD_CONFERENCIAS'),
-          MOD_RELATORIOS: await this.service.isEnabled(idEmpresa, 'MOD_RELATORIOS'),
-        
-          // ação específica:
-          MOD_INSERIR_LOJA: await this.service.isEnabled(idEmpresa, 'MOD_INSERIR_LOJA'),
-        },
-      };
+  async me(@Req() req: Request) {
+    const raw = (req as any)?.user?.idEmpresa;
+    const idEmpresa = Number(raw);
+
+    if (!Number.isFinite(idEmpresa)) {
+      throw new UnauthorizedException('Usuário sem idEmpresa no token');
     }
 
-  @Get(':idEmpresa')
-  async list(@Param('idEmpresa') idEmpresa: string) {
-    return this.service.listByEmpresa(Number(idEmpresa));
+    const rows = await this.service.listByEmpresa(idEmpresa);
+
+    // transforma lista em map: { FEATURE_KEY: true/false }
+    const flags = (rows ?? []).reduce((acc: Record<string, boolean>, r: any) => {
+      const key = String(r.featureKey ?? r.feature_key ?? '');
+      if (key) acc[key] = !!(r.enabled ?? r.ENABLED);
+      return acc;
+    }, {});
+
+    return { ok: true, idEmpresa, flags };
   }
 
-  @Put(':idEmpresa/:featureKey')
-  async set(
-    @Param('idEmpresa') idEmpresa: string,
-    @Param('featureKey') featureKey: string,
-    @Body() dto: SetFeatureFlagDto,
-  ) {
-    return this.service.setFlag(Number(idEmpresa), featureKey, !!dto.enabled);
-  }
+   @Get('catalog')
+    async catalog() {
+      return {
+        items: FEATURE_CATALOG,
+      };
+    }
 }

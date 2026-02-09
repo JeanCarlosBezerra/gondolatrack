@@ -1,4 +1,4 @@
-// === INÍCIO ARQUIVO NOVO: src/feature-flags/feature-flag.guard.ts ===
+// === INÍCIO ARQUIVO: src/feature-flags/feature-flag.guard.ts ===
 import {
   CanActivate,
   ExecutionContext,
@@ -9,6 +9,12 @@ import {
 } from '@nestjs/common';
 import { FeatureFlagsService } from './feature-flags.service';
 
+function isAdminRole(req: any): boolean {
+  const raw = String(req?.user?.roles ?? '');
+  const parts = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return parts.includes('ADMIN');
+}
+
 export function FeatureFlagGuard(featureKey: string): Type<CanActivate> {
   @Injectable()
   class FeatureFlagGuardMixin implements CanActivate {
@@ -16,6 +22,9 @@ export function FeatureFlagGuard(featureKey: string): Type<CanActivate> {
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
       const req = context.switchToHttp().getRequest();
+
+      // ✅ GOD MODE: ADMIN passa direto
+      if (isAdminRole(req)) return true;
 
       const idEmpresa = Number(req?.user?.idEmpresa);
       if (!idEmpresa) {
@@ -34,4 +43,4 @@ export function FeatureFlagGuard(featureKey: string): Type<CanActivate> {
 
   return mixin(FeatureFlagGuardMixin);
 }
-// === FIM ARQUIVO NOVO ===
+// === FIM ARQUIVO ===

@@ -47,12 +47,11 @@ export class AuthService {
           ? true
           : groups.some((g: string) => String(g).toUpperCase().includes('GONDOLATRACK_USERS'));
       // tenta pegar tenant cadastrado; se não existir, auto-cadastra (se allowed)
-      let tenant: { idEmpresa: number; nome: string | null };
+      let tenant: { idEmpresa: number; nome: string | null; roles: string };
 
       try {
         tenant = await this.tenantSvc.getTenantOrThrow(usuario);
       } catch {
-        // DICASA = 1 (seu print confirma)
         tenant = await this.tenantSvc.ensureTenantFromAd({
           username: usuario,
           nome: cn,
@@ -68,6 +67,7 @@ export class AuthService {
         nome: cn,
         groups,
         idEmpresa: tenant.idEmpresa,
+        roles: tenant.roles ?? '', // ✅ sempre string
       };
 
       const token = this.jwtService.sign(payload);

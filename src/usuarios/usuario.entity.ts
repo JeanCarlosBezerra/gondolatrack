@@ -17,6 +17,14 @@ export class Usuario {
   @Column({ name: 'ativo', type: 'boolean', default: true })
   ativo: boolean;
 
+  // ✅ ADICIONADO (tua tabela tem)
+  @Column({ name: 'auth_provider', type: 'varchar', length: 40, nullable: true })
+  authProvider?: string | null;
+
+  // ✅ ADICIONADO (tua tabela tem)
+  @Column({ name: 'roles', type: 'varchar', length: 500, nullable: true })
+  roles?: string | null;
+
   @Column({ name: 'criado_em', type: 'timestamptz', default: () => 'now()' })
   criadoEm: Date;
 
