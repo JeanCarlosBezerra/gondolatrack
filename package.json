@@ -84,5 +84,9 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  }
+  },
+  "overrides": {
+  "whatwg-url": "11.0.0",
+  "webidl-conversions": "7.0.0"
+}
 }

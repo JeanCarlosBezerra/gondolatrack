@@ -296,7 +296,7 @@ async confirmar(idAbastecimento: string) {
       [dto.idLoja],
     );
     if (!loja?.length) throw new BadRequestException("Loja não encontrada.");
-    const idEmpresa = Number(loja[0].id_empresa);
+    const idEmpresa = Number(loja[0].id_empresa_erp);
 
     // 2) Locais LOJA (VENDA/DEPOSITO)
     const locaisLoja = await this.dataSource.query(

@@ -25,9 +25,15 @@ export class Db2Service implements OnModuleDestroy {
         if (err) return reject(err);
 
         conn.query(sql, params, (qErr, data) => {
-          // mantém close (devolve pro pool)
           conn.close(() => {});
-          if (qErr) return reject(qErr);
+          if (qErr) {
+            const code = Number((qErr as any).sqlcode ?? (qErr as any).errorNum ?? -1);
+            // sqlcode > 0 = warning (ex: 437 = performance warning) → continua
+            if (code > 0) {
+              return resolve((data ?? []) as T[]);
+            }
+            return reject(qErr); // sqlcode < 0 = erro real
+          }
           resolve((data ?? []) as T[]);
         });
       });
