@@ -47,35 +47,47 @@ export class GondolaProduto {
   @Column({ name: 'maximo', type: 'int' })
   maximo: number;
 
-@Column({
-  name: 'estoque_atual',
-  type: 'numeric',
-  precision: 14,
-  scale: 3,
-  default: 0,
-  transformer: numericTransformer,
-})
-estoqueAtual: number;
+  @Column({
+    name: 'estoque_atual',
+    type: 'numeric',
+    precision: 14,
+    scale: 3,
+    default: 0,
+    transformer: numericTransformer,
+  })
+  estoqueAtual: number;
 
-@Column({
-  name: 'estoque_venda',
-  type: 'numeric',
-  precision: 14,
-  scale: 3,
-  default: 0,
-  transformer: numericTransformer,
-})
-estoqueVenda: number;
+  @Column({
+    name: 'estoque_venda',
+    type: 'numeric',
+    precision: 14,
+    scale: 3,
+    default: 0,
+    transformer: numericTransformer,
+  })
+  estoqueVenda: number;
 
-@Column({
-  name: 'estoque_deposito',
-  type: 'numeric',
-  precision: 14,
-  scale: 3,
-  default: 0,
-  transformer: numericTransformer,
-})
-estoqueDeposito: number;
+  @Column({
+    name: 'estoque_deposito',
+    type: 'numeric',
+    precision: 14,
+    scale: 3,
+    default: 0,
+    transformer: numericTransformer,
+  })
+  estoqueDeposito: number;
+
+  // [NOVO] Foto do estoque no momento do cadastro na gôndola.
+  // Gravado UMA vez no addByBip e NUNCA sobrescrito pelo refresh/reposição.
+  @Column({
+    name: 'estoque_snapshot',
+    type: 'numeric',
+    precision: 14,
+    scale: 3,
+    default: 0,
+    transformer: numericTransformer,
+  })
+  estoqueSnapshot: number;
 
   @Column({ name: 'atualizado_em', type: 'timestamp', default: () => 'now()' })
   atualizadoEm: Date;
